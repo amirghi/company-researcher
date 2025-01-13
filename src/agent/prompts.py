@@ -4,6 +4,8 @@ EXTRACTION_PROMPT = """Your task is to take notes gathered from web research and
 {info}
 </schema>
 
+While your response should adhere to the schema, please make sure you do not put it within ```json``` tags.
+
 Here are all the notes from research:
 
 <web_research_notes>
@@ -31,6 +33,14 @@ Your query should:
 3. Prioritize finding information that matches the schema requirements
 4. Include the company name and relevant business terms
 5. Be specific enough to avoid irrelevant results
+6. Your response should be in JSON format, with the search queries as a list of strings. For example: 
+{{
+    "queries": [
+        "search query 1",
+        "search query 2",
+        "search query 3"
+    ]
+}}
 
 Create a focused query that will maximize the chances of finding schema-relevant information."""
 
@@ -79,4 +89,13 @@ Analyze if all required fields are present and sufficiently populated. Consider:
 1. Are any required fields missing?
 2. Are any fields incomplete or containing uncertain information?
 3. Are there fields with placeholder values or "unknown" markers?
+
+If your conclusion is that the information is satisfactory, meaning all required fields are present and sufficiently populated,
+please simply respond with {{"is_satisfactory": true}}, otherwise return this flag as false along with a list of 
+search queries that will help gather the missing information. 
+Example: 
+{{
+    "is_satisfactory": false,
+    "search_queries": ["search query 1", "search query 2"]
+}}
 """

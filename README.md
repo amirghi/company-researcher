@@ -14,7 +14,20 @@ Clone the repository and launch the assistant [using the LangGraph server](https
 curl -LsSf https://astral.sh/uv/install.sh | sh
 git clone https://github.com/langchain-ai/company-researcher.git
 cd company-researcher
-uvx --refresh --from "langgraph-cli[inmem]" --with-editable . --python 3.11 langgraph dev
+uvx --refresh --from "langgraph-cli[inmem]" --with-editable . --python 3.12.1 langgraph dev
+```
+
+### Access LangSmith Studio
+
+After starting the server, forward the port `2024` in GitHub Codespaces. 
+Make sure the port is public to avoid CORS errors.
+```
+gh codespace ports visibility 2024:public -c $CODESPACE_NAME
+```
+
+Use the forwarded URL as the `baseUrl` parameter in the LangSmith Studio URL. For example:
+```
+https://smith.langchain.com/studio/?baseUrl=https://reimagined-space-parakeet-pxvjjg4vr6f97rj-2024.app.github.dev/
 ```
 
 ![company_people_researcher](https://github.com/user-attachments/assets/f651d18c-8cf8-4dde-87cb-3daed59c7fa0)
@@ -282,5 +295,5 @@ python eval/create_dataset.py
 To run the evaluation, you can use the `run_eval.py` script in the `eval` folder. This will create a new experiment in LangSmith for the dataset you created in the previous step.
 
 ```shell
-python eval/run_eval.py --experiment-prefix "My custom prefix" --agent-url http://localhost:2024
+python eval/run_eval.py --experiment-prefix "My custom prefix" --agent-url https://glowing-space-barnacle-5w6gg4j9qv2p79p-2024.app.github.dev/
 ```

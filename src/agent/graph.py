@@ -1,13 +1,15 @@
 import asyncio
 from typing import cast, Any, Literal
 import json
+import os
 
-from tavily import AsyncTavilyClient
-from langchain_anthropic import ChatAnthropic
+import openai
+from openai import OpenAI
 from langchain_core.rate_limiters import InMemoryRateLimiter
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import START, END, StateGraph
 from pydantic import BaseModel, Field
+#from fastapi import FastAPI
 
 from agent.configuration import Configuration
 from agent.state import InputState, OutputState, OverallState
@@ -18,6 +20,7 @@ from agent.prompts import (
     INFO_PROMPT,
     QUERY_WRITER_PROMPT,
 )
+from tavily import AsyncTavilyClient  # Add this import
 
 # LLMs
 
@@ -26,13 +29,41 @@ rate_limiter = InMemoryRateLimiter(
     check_every_n_seconds=0.1,
     max_bucket_size=10,  # Controls the maximum burst size.
 )
-claude_3_5_sonnet = ChatAnthropic(
-    model="claude-3-5-sonnet-latest", temperature=0, rate_limiter=rate_limiter
-)
+
+def gpt_model(prompt, model="gpt-4o-mini", temperature=0):
+
+#     response = """
+# {
+#   "company_name": "Intuit Inc.",
+#   "founding_year": 1983,
+#   "founder_names": [
+#     "Scott Cook",
+#     "Tom Proulx"
+#   ],
+#   "product_description": "Intuit Inc. is a leading financial software company that provides a range of products and services aimed at simplifying bookkeeping and tax preparation for individuals and small businesses, including TurboTax, QuickBooks, Mint, and Credit Karma.",
+#   "funding_summary": "Intuit has a history of raising funds through various rounds, with its latest funding being a Post-IPO Debt round on September 12, 2023. The company has raised funding over three rounds from multiple investors, including private equity and venture capital firms. Notably, Intuit went public in 1993 and has since maintained a strong market presence."
+# }
+# """
+#     print("Skipping API call")
+#     return response
+
+    client = OpenAI(
+        api_key=os.environ.get("OPENAI_API_KEY"),  # This is the default and can be omitted
+    )
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "system", "content": prompt}],
+        temperature=temperature,
+        max_tokens=1000
+    )
+    print(f"\nPrompt: <{prompt}>\nResponse: <\n{response.choices[0].message.content}>\n")
+    return response.choices[0].message.content
 
 # Search
 
-tavily_async_client = AsyncTavilyClient()
+tavily_api_key = os.getenv("TAVILY_API_KEY")
+print(tavily_api_key)
+tavily_async_client = AsyncTavilyClient(api_key=tavily_api_key)
 
 
 class Queries(BaseModel):
@@ -60,9 +91,6 @@ def generate_queries(state: OverallState, config: RunnableConfig) -> dict[str, A
     configurable = Configuration.from_runnable_config(config)
     max_search_queries = configurable.max_search_queries
 
-    # Generate search queries
-    structured_llm = claude_3_5_sonnet.with_structured_output(Queries)
-
     # Format system instructions
     query_instructions = QUERY_WRITER_PROMPT.format(
         company=state.company,
@@ -72,21 +100,12 @@ def generate_queries(state: OverallState, config: RunnableConfig) -> dict[str, A
     )
 
     # Generate queries
-    results = cast(
-        Queries,
-        structured_llm.invoke(
-            [
-                {"role": "system", "content": query_instructions},
-                {
-                    "role": "user",
-                    "content": "Please generate a list of search queries related to the schema that you want to populate.",
-                },
-            ]
-        ),
-    )
+    prompt = f"System: {query_instructions}\nUser: Please generate a list of search queries related to the schema that you want to populate."
+    response_text = gpt_model(prompt)
+    results = json.loads(response_text)
 
     # Queries
-    query_list = [query for query in results.queries]
+    query_list = [query for query in results['queries']]
     return {"search_queries": query_list}
 
 
@@ -131,8 +150,8 @@ async def research_company(
         company=state.company,
         user_notes=state.user_notes,
     )
-    result = await claude_3_5_sonnet.ainvoke(p)
-    return {"completed_notes": [str(result.content)]}
+    response_text = gpt_model(p)
+    return {"completed_notes": [response_text]}
 
 
 def gather_notes_extract_schema(state: OverallState) -> dict[str, Any]:
@@ -145,23 +164,13 @@ def gather_notes_extract_schema(state: OverallState) -> dict[str, Any]:
     system_prompt = EXTRACTION_PROMPT.format(
         info=json.dumps(state.extraction_schema, indent=2), notes=notes
     )
-    structured_llm = claude_3_5_sonnet.with_structured_output(state.extraction_schema)
-    result = structured_llm.invoke(
-        [
-            {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": "Produce a structured output from these notes.",
-            },
-        ]
-    )
+    response_text = gpt_model(system_prompt)
+    result = json.loads(response_text)
     return {"info": result}
 
 
 def reflection(state: OverallState) -> dict[str, Any]:
     """Reflect on the extracted information and generate search queries to find missing information."""
-    structured_llm = claude_3_5_sonnet.with_structured_output(ReflectionOutput)
-
     # Format reflection prompt
     system_prompt = REFLECTION_PROMPT.format(
         schema=json.dumps(state.extraction_schema, indent=2),
@@ -169,22 +178,15 @@ def reflection(state: OverallState) -> dict[str, Any]:
     )
 
     # Invoke
-    result = cast(
-        ReflectionOutput,
-        structured_llm.invoke(
-            [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": "Produce a structured reflection output."},
-            ]
-        ),
-    )
+    response_text = gpt_model(system_prompt)
+    result = json.loads(response_text)
 
-    if result.is_satisfactory:
-        return {"is_satisfactory": result.is_satisfactory}
+    if result['is_satisfactory']:
+        return {"is_satisfactory": result['is_satisfactory']}
     else:
         return {
-            "is_satisfactory": result.is_satisfactory,
-            "search_queries": result.search_queries,
+            "is_satisfactory": result['is_satisfactory'],
+            "search_queries": result['search_queries'],
             "reflection_steps_taken": state.reflection_steps_taken + 1,
         }
 
